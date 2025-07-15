@@ -1,2 +1,3 @@
 data/export_geojson.py
 data/wind_data.sqlite
+.claude_code_config.json
