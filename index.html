@@ -395,9 +395,6 @@ updateUI();
 function updateUI(){
   document.getElementById('title').textContent=t('title');
   document.getElementById('search').placeholder=t('search');
-  document.getElementById('banner').textContent=lang==='it'
-    ?'⚠️ Dati Ministero Ambiente – verifica aggiornamenti'
-    :'⚠️ Ministry of Environment data – always verify updates';
   document.getElementById('sidebarTitle').textContent=t('nearbyTitle',{r:proximityRange.value});
 }
 
