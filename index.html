@@ -130,7 +130,7 @@ let geojsonData=[];
 let vtLayer=null;
 let circlesLayer=L.layerGroup().addTo(map);
 
-fetch('wind.geojson')
+fetch('C:\Users\PC\Dev\oneshots\leaflet\wind.geojson')
   .then(r=>r.json())
   .then(data=>{
     geojsonData=data.features;
