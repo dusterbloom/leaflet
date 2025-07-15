@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<title>Mappa Eolica Sardegna | Sardinia Wind Map</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+
+<!-- Leaflet + vt libs -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/geojson-vt@3.2.0/geojson-vt.js"></script>
+<script src="https://unpkg.com/leaflet-geojson-vt@1.0.1/leaflet-geojson-vt.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+body{height:100vh;display:flex;flex-direction:column}
+#map{flex:1}
+.header{background:#fff;z-index:1000;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;box-shadow:0 2px 4px rgba(0,0,0,.1)}
+.header h1{font-size:16px}
+.langBtn{background:#007cba;color:#fff;border:none;padding:4px 8px;border-radius:12px;font-size:12px;cursor:pointer}
+#search{padding:4px 8px;border:1px solid #ccc;border-radius:12px;font-size:14px;min-width:160px}
+.filters{padding:8px 12px;background:#fff;border-bottom:1px solid #ddd;display:flex;gap:6px}
+.filterBtn{padding:4px 10px;border:1px solid #ccc;border-radius:12px;font-size:12px;background:#fff;cursor:pointer}
+.filterBtn.active{background:#007cba;color:#fff}
+.stats{padding:8px 12px;font-size:13px;background:#fff;border-top:1px solid #ddd}
+.sidebar{position:absolute;top:140px;right:10px;width:260px;max-height:60vh;background:#fff;border:1px solid #ccc;border-radius:6px;overflow-y:auto;z-index:1000;display:none}
+.sidebar h3{font-size:14px;padding:6px 8px;border-bottom:1px solid #ccc;margin:0}
+.sidebar ul{list-style:none;padding:0;margin:0}
+.sidebar li{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;cursor:pointer}
+.sidebar li:hover{background:#f0f0f0}
+.rangeWrap{padding:6px 8px;font-size:12px}
+#proximityRange{width:100%}
+.toggleWrap{position:absolute;top:90px;left:10px;z-index:1000;font-size:12px;background:#fff;padding:4px;border-radius:4px}
+.legend{position:absolute;bottom:30px;left:10px;background:#fff;padding:6px;border-radius:4px;font-size:12px;box-shadow:0 0 4px rgba(0,0,0,.2)}
+.legendItem{display:flex;align-items:center;margin:2px 0}
+.legendColor{width:12px;height:12px;border-radius:50%;margin-right:6px}
+.warningBanner{background:#fff3cd;color:#856404;font-size:12px;padding:4px;text-align:center}
+@media(max-width:600px){.sidebar{right:5px;width:calc(100% - 10px)}}
+</style>
+</head>
+<body>
+<div class="warningBanner" id="banner"></div>
+<div class="header">
+  <h1 id="title">Mappa Eolica Sardegna</h1>
+  <button class="langBtn" onclick="toggleLang()">EN</button>
+  <input id="search" type="text" placeholder="Cerca progetto o località..."/>
+</div>
+<div class="filters">
+  <button class="filterBtn active" data-type="all">Tutti / All</button>
+  <button class="filterBtn" data-type="ONSHORE">Onshore</button>
+  <button class="filterBtn" data-type="OFFSHORE">Offshore</button>
+</div>
+<div id="map"></div>
+<div class="stats" id="stats">Caricamento...</div>
+<div class="sidebar" id="sidebar">
+  <h3 id="sidebarTitle">Progetti entro <span id="rangeVal">5</span> km</h3>
+  <div class="rangeWrap"><input type="range" id="proximityRange" min="1" max="50" value="5"/></div>
+  <ul id="nearbyList"></ul>
+</div>
+<div class="toggleWrap">
+  <label><input type="checkbox" id="toggleCircles" onchange="toggleCircles()"> Mostra raggio visivo / Show visibility</label>
+</div>
+<script>
+/* ---------- CONFIG ---------- */
+const url = new URL(location);
+const lang = url.searchParams.get('lang') || 'it';
+const centerLat = parseFloat(url.searchParams.get('lat')) || 40;
+const centerLng = parseFloat(url.searchParams.get('lon')) || 9;
+const zoom = parseInt(url.searchParams.get('zoom')) || 8;
+
+const dict = {
+  it:{
+    title:'Mappa Eolica Sardegna',
+    search:'Cerca progetto o località...',
+    all:'Tutti',
+    onshore:'Onshore',
+    offshore:'Offshore',
+    stats:'{n} progetti visibili – {mw} MW',
+    company:'Proponente',
+    municipality:'Comune',
+    power:'Potenza',
+    height:'Altezza',
+    diameter:'Diametro',
+    procedure:'Procedura',
+    takeAction:'Agisci',
+    share:'Condividi',
+    nearbyTitle:'Progetti entro {r} km',
+    emailSubject:'Preoccupazioni progetto eolico {name}',
+    emailBody:`Gentile Autorità,\n\nvorrei esprimere le mie preoccupazioni sul progetto eolico “{name}” ({mw} MW, {municipality}).\n\n[aggiungi qui note personali]\n\ncordiali saluti,`
+  },
+  en:{
+    title:'Sardinia Wind Map',
+    search:'Search project or municipality...',
+    all:'All',
+    onshore:'Onshore',
+    offshore:'Offshore',
+    stats:'{n} visible projects – {mw} MW',
+    company:'Company',
+    municipality:'Municipality',
+    power:'Power',
+    height:'Height',
+    diameter:'Diameter',
+    procedure:'Procedure',
+    takeAction:'Take Action',
+    share:'Share',
+    nearbyTitle:'Projects within {r} km',
+    emailSubject:'Concerns wind project {name}',
+    emailBody:`Dear Authority,\n\nI wish to raise concerns about the wind project “{name}” ({mw} MW, {municipality}).\n\n[add personal notes here]\n\nbest regards,`
+  }
+};
+function t(k,o={}){return dict[lang][k].replace(/\{(\w+)\}/g,(_,x)=>o[x]||'')}
+
+/* ---------- MAP ---------- */
+const map=L.map('map').setView([centerLat,centerLng],zoom);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+
+/* Legend */
+const legend=L.control({position:'bottomleft'});
+legend.onAdd=()=>{
+  const d=L.DomUtil.create('div','legend');
+  d.innerHTML=`
+    <div class="legendItem"><div class="legendColor" style="background:#00a651"></div>Onshore</div>
+    <div class="legendItem"><div class="legendColor" style="background:#0077be"></div>Offshore</div>
+  `;return d;
+};legend.addTo(map);
+
+/* ---------- DATA ---------- */
+let geojsonData=[];
+let vtLayer=null;
+let circlesLayer=L.layerGroup().addTo(map);
+
+fetch('wind.geojson')
+  .then(r=>r.json())
+  .then(data=>{
+    geojsonData=data.features;
+    console.log('GeoJSON loaded:',geojsonData.length,'features');
+    render();
+  })
+  .catch(err=>{
+    console.error(err);
+    alert('wind.geojson non trovato → dati demo');
+    geojsonData=[
+      {type:'Feature',properties:{company:'Enel',name:'Demo1',type:'ONSHORE',municipality:'Cagliari',mw:50,height:120,diameter:140,procedure:'AUA'},geometry:{type:'Point',coordinates:[9.1217,39.2238]}},
+      {type:'Feature',properties:{company:'RWE',name:'Demo2',type:'OFFSHORE',municipality:'Olbia',mw:100,height:150,diameter:180,procedure:'CD'},geometry:{type:'Point',coordinates:[9.4947,40.9239]}}
+    ];
+    render();
+  });
+
+/* ---------- RENDER ---------- */
+let visibleFeatures=[];
+function render(){
+  const typeFilter=document.querySelector('.filterBtn.active').dataset.type||'all';
+  const searchStr=document.getElementById('search').value.toLowerCase();
+  visibleFeatures=geojsonData.filter(f=>{
+    const p=f.properties;
+    return (typeFilter==='all'||p.type===typeFilter)&&
+           (!searchStr||p.name.toLowerCase().includes(searchStr)||p.municipality.toLowerCase().includes(searchStr));
+  });
+  if(vtLayer){map.removeLayer(vtLayer);}
+  if(visibleFeatures.length){
+    const vt=L.geoJson.vt(
+      {type:'FeatureCollection',features:visibleFeatures},
+      {
+        maxZoom:18,
+        tolerance:3,
+        debug:0,
+        style:(props)=>{
+          const color=props.type==='OFFSHORE'?'#0077be':'#00a651';
+          return {radius:Math.max(5,Math.min(15,props.mw/5)),fillColor:color,color:'#fff',weight:1,opacity:1,fillOpacity:0.8};
+        },
+        onEachFeature:(f,l)=>{
+          const p=f.properties;
+          const popup=`
+            <strong>${p.name}</strong><br/>
+            ${t('company')}: ${p.company}<br/>
+            ${t('municipality')}: ${p.municipality}<br/>
+            ${t('power')}: ${p.mw} MW<br/>
+            ${t('height')}: ${p.height} m<br/>
+            ${t('diameter')}: ${p.diameter} m<br/>
+            ${t('procedure')}: ${p.procedure}<br/>
+            <br/>
+            <button onclick="actionEmail('${p.name}',${p.mw},'${p.municipality}')">${t('takeAction')}</button>
+            <button onclick="share('${p.name}',${p.mw},'${p.municipality}')">${t('share')}</button>
+            <button onclick="copyCoords(${f.geometry.coordinates[1]},${f.geometry.coordinates[0]})">Copia coords</button>
+          `;
+          l.bindPopup(popup);
+        }
+      }
+    );
+    vtLayer=vt.addTo(map);
+  }
+  updateStats();
+  updateNearby();
+}
+
+/* ---------- UI ---------- */
+updateUI();
+function updateUI(){
+  document.getElementById('title').textContent=t('title');
+  document.getElementById('search').placeholder=t('search');
+  document.getElementById('banner').textContent=lang==='it'
+    ?'⚠️ Dati Ministero Ambiente – verifica aggiornamenti'
+    :'⚠️ Ministry of Environment data – always verify updates';
+  document.getElementById('sidebarTitle').textContent=t('nearbyTitle',{r:proximityRange.value});
+}
+function toggleLang(){
+  const u=new URL(location);
+  u.searchParams.set('lang',lang==='it'?'en':'it');
+  location.href=u.toString();
+}
+
+document.querySelectorAll('.filterBtn').forEach(btn=>{
+  btn.addEventListener('click',e=>{
+    document.querySelectorAll('.filterBtn').forEach(b=>b.classList.remove('active'));
+    e.target.classList.add('active');
+    render();
+  });
+});
+document.getElementById('search').addEventListener('input',render);
+
+/* ---------- STATS ---------- */
+function updateStats(){
+  const mw=visibleFeatures.reduce((s,f)=>s+f.properties.mw,0);
+  document.getElementById('stats').textContent=t('stats',{n:visibleFeatures.length,mw:Math.round(mw)});
+}
+
+/* ---------- DOWNLOAD CSV ---------- */
+const csvBtn=document.createElement('button');
+csvBtn.textContent='CSV';
+csvBtn.style.position='absolute';csvBtn.style.bottom='5px';csvBtn.style.right='10px';csvBtn.style.zIndex='1000';csvBtn.style.fontSize='12px';
+csvBtn.onclick=()=>{
+  if(!visibleFeatures.length){alert('Nessun dato');return;}
+  const csv=Papa.unparse(visibleFeatures.map(f=>{
+    const p=f.properties;
+    return{Company:p.company,Name:p.name,Type:p.type,Municipality:p.municipality,MW:p.mw,Height:p.height,Diameter:p.diameter,Procedure:p.procedure};
+  }));
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='sardinia-wind.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.body.appendChild(csvBtn);
+
+/* ---------- EMAIL ---------- */
+function actionEmail(name,mw,municipality){
+  const subj=encodeURIComponent(t('emailSubject',{name:name}));
+  const body=encodeURIComponent(t('emailBody',{name:name,mw:mw,municipality:municipality}));
+  window.open(`mailto:?subject=${subj}&body=${body}`);
+}
+
+/* ---------- SHARE ---------- */
+function share(name,mw,municipality){
+  const link=location.origin+location.pathname+`?lat=${map.getCenter().lat.toFixed(4)}&lon=${map.getCenter().lng.toFixed(4)}&zoom=${map.getZoom()}`;
+  const text=`🚨 Progetto eolico di ${mw} MW previsto a ${municipality}. Vedi la mappa: ${link}`;
+  navigator.share?navigator.share({title:'Sardinia Wind Map',text:text,url:link}):window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,'_blank');
+}
+function copyCoords(lat,lng){
+  navigator.clipboard.writeText(`${lat}, ${lng}`);
+}
+
+/* ---------- PROXIMITY ---------- */
+const sidebar=document.getElementById('sidebar');
+const range=document.getElementById('proximityRange');
+const rangeVal=document.getElementById('rangeVal');
+const nearbyList=document.getElementById('nearbyList');
+
+range.addEventListener('input',e=>{
+  rangeVal.textContent=e.target.value;
+  updateNearby();
+});
+map.on('moveend',updateNearby);
+
+function haversine(a,b){
+  const [lat1,lon1]=a,[lat2,lon2]=b;
+  const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+  const x=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+function updateNearby(){
+  const r=parseInt(range.value);
+  const c=map.getCenter();
+  const nearby=visibleFeatures.filter(f=>haversine([c.lat,c.lng],[f.geometry.coordinates[1],f.geometry.coordinates[0]])<=r);
+  nearbyList.innerHTML='';
+  nearby.forEach(f=>{
+    const li=document.createElement('li');
+    li.textContent=`${f.properties.name} (${f.properties.municipality}) – ${f.properties.mw} MW`;
+    li.onclick=()=>{map.setView([f.geometry.coordinates[1],f.geometry.coordinates[0]],14);};
+    nearbyList.appendChild(li);
+  });
+  sidebar.style.display=nearby.length?'block':'none';
+}
+
+/* ---------- VISIBILITY CIRCLES ---------- */
+function toggleCircles(){
+  circlesLayer.clearLayers();
+  if(document.getElementById('toggleCircles').checked){
+    visibleFeatures.forEach(f=>{
+      const radius=(f.properties.height*30)||5000;
+      L.circle([f.geometry.coordinates[1],f.geometry.coordinates[0]],radius,{color:'#f00',weight:1,opacity:.3,fillOpacity:.05}).addTo(circlesLayer);
+    });
+  }
+}
+render();
+</script>
+</body>
+</html>
