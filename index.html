@@ -11,6 +11,8 @@
 
 <!-- working leaflet-geojson-vt -->
 <script src="https://cdn.jsdelivr.net/npm/leaflet-geojson-vt@0.1.2/dist/leaflet-geojson-vt.min.js"></script>
+<script src="https://unpkg.com/geojson-vt@3.2.0/geojson-vt.js"></script>
+
 
 <!-- PapaParse (CSV download) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -156,12 +158,7 @@ fetch('data/wind.geojson')
   })
   .catch(err=>{
     console.error(err);
-    alert('wind.geojson non trovato → dati demo');
-    geojsonData=[
-      {type:'Feature',properties:{company:'Enel',name:'Demo1',type:'ONSHORE',municipality:'Cagliari',mw:50,height:120,diameter:140,procedure:'AUA'},geometry:{type:'Point',coordinates:[9.1217,39.2238]}},
-      {type:'Feature',properties:{company:'RWE',name:'Demo2',type:'OFFSHORE',municipality:'Olbia',mw:100,height:150,diameter:180,procedure:'CD'},geometry:{type:'Point',coordinates:[9.4947,40.9239]}}
-    ];
-    render();
+ 
   });
 
 /* ---------- RENDER ---------- */
@@ -174,7 +171,7 @@ function render(){
     return (typeFilter==='all'||p.type===typeFilter)&&
            (!searchStr||p.name.toLowerCase().includes(searchStr)||p.municipality.toLowerCase().includes(searchStr));
   });
-  if(vtLayer){map.removeLayer(vtLayer);}
+  if(geojsonLayer){map.removeLayer(geojsonLayer);}
   if(visibleFeatures.length){
     const geojsonLayer = L.geoJSON(
       {type:'FeatureCollection',features:visibleFeatures},
@@ -211,7 +208,7 @@ function render(){
         }
       }
     );
-    vtLayer = geojsonLayer.addTo(map);
+    geojsonLayer = geojsonLayer.addTo(map);
   }
   updateStats();
   updateNearby();
