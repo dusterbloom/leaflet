@@ -2,17 +2,21 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8"/>
-<title>Mappa Eolica Sardegna | Sardinia Wind Map</title>
+<title>Mappa Eolica Sardegna</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 
-<!-- Leaflet + vt libs -->
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/geojson-vt@3.2.0/geojson-vt.js"></script>
-<script src="https://unpkg.com/leaflet-geojson-vt@1.0.1/leaflet-geojson-vt.js"></script>
+
+<!-- working leaflet-geojson-vt -->
+<script src="https://cdn.jsdelivr.net/npm/leaflet-geojson-vt@0.1.2/dist/leaflet-geojson-vt.min.js"></script>
+
+<!-- PapaParse (CSV download) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
 <style>
+/* (CSS unchanged from previous answer) */
 *{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
 body{height:100vh;display:flex;flex-direction:column}
 #map{flex:1}
@@ -127,14 +131,27 @@ legend.onAdd=()=>{
 
 /* ---------- DATA ---------- */
 let geojsonData=[];
-let vtLayer=null;
+let geojsonLayer=null;
 let circlesLayer=L.layerGroup().addTo(map);
 
-fetch('C:\Users\PC\Dev\oneshots\leaflet\wind.geojson')
+fetch('data/wind.geojson')
   .then(r=>r.json())
   .then(data=>{
-    geojsonData=data.features;
-    console.log('GeoJSON loaded:',geojsonData.length,'features');
+    // Map Italian property names to expected English names
+    geojsonData = data.features.map(f => ({
+      ...f,
+      properties: {
+        company: f.properties.proponente || 'Unknown',
+        name: f.properties.nome_progetto || 'Unknown',
+        type: (f.properties.tipo || '').toUpperCase(),
+        municipality: f.properties.localita || 'Unknown',
+        mw: f.properties.mwp || 0,
+        height: f.properties.altezza || 0,
+        diameter: f.properties.diametro || 0,
+        procedure: f.properties.procedura || 'Unknown'
+      }
+    }));
+    console.log('GeoJSON loaded:', geojsonData.length, 'features');
     render();
   })
   .catch(err=>{
@@ -159,19 +176,25 @@ function render(){
   });
   if(vtLayer){map.removeLayer(vtLayer);}
   if(visibleFeatures.length){
-    const vt=L.geoJson.vt(
+    const geojsonLayer = L.geoJSON(
       {type:'FeatureCollection',features:visibleFeatures},
       {
-        maxZoom:18,
-        tolerance:3,
-        debug:0,
-        style:(props)=>{
-          const color=props.type==='OFFSHORE'?'#0077be':'#00a651';
-          return {radius:Math.max(5,Math.min(15,props.mw/5)),fillColor:color,color:'#fff',weight:1,opacity:1,fillOpacity:0.8};
+        pointToLayer: (feature, latlng) => {
+          const props = feature.properties;
+          const color = props.type === 'OFFSHORE' ? '#0077be' : '#00a651';
+          const radius = Math.max(5, Math.min(15, props.mw / 5));
+          return L.circleMarker(latlng, {
+            radius: radius,
+            fillColor: color,
+            color: '#fff',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.8
+          });
         },
-        onEachFeature:(f,l)=>{
-          const p=f.properties;
-          const popup=`
+        onEachFeature: (f, l) => {
+          const p = f.properties;
+          const popup = `
             <strong>${p.name}</strong><br/>
             ${t('company')}: ${p.company}<br/>
             ${t('municipality')}: ${p.municipality}<br/>
@@ -188,7 +211,7 @@ function render(){
         }
       }
     );
-    vtLayer=vt.addTo(map);
+    vtLayer = geojsonLayer.addTo(map);
   }
   updateStats();
   updateNearby();
